@@ -550,4 +550,167 @@ TEST(test_pb_protocol, empty_person)
     EXPECT_EQ(new_data, "1000"_decode_hex);
 }
 
+struct person_no_protocol
+{
+    std::string name; // = 1
+    zpp::bits::vint32_t id; // = 2
+    std::string email; // = 3
+
+    enum phone_type
+    {
+        mobile = 0,
+        home = 1,
+        work = 2,
+    };
+
+    struct phone_number
+    {
+        std::string number; // = 1
+        phone_type type; // = 2
+    };
+
+    std::vector<phone_number> phones; // = 4
+};
+
+TEST(test_pb_protocol, person_no_protocol)
+{
+    constexpr auto data =
+        "\n\x08John Doe\x10\xd2\t\x1a\x10jdoe@example.com\"\x0c\n\x08"
+        "555-4321\x10\x01"_b;
+    static_assert(data.size() == 45);
+
+    person_no_protocol p;
+    zpp::bits::in{data, zpp::bits::no_size{}, zpp::bits::pb_protocol_option{} }(p).or_throw();
+
+    EXPECT_EQ(p.name, "John Doe");
+    EXPECT_EQ(p.id, 1234);
+    EXPECT_EQ(p.email, "jdoe@example.com");
+    ASSERT_EQ(p.phones.size(), 1u);
+    EXPECT_EQ(p.phones[0].number, "555-4321");
+    EXPECT_EQ(p.phones[0].type, person_no_protocol::home);
+
+    std::array<std::byte, data.size()> new_data;
+    zpp::bits::out{new_data, zpp::bits::no_size{}, zpp::bits::pb_protocol_option{}}(p).or_throw();
+
+    EXPECT_EQ(data, new_data);
+}
+
+struct monster_with_optional {
+  using serialize = zpp::bits::members<10>;
+  enum class color : int { red, blue, green };
+
+  struct vec3 {
+    int32_t x;
+    int32_t y;
+    int32_t z;
+
+    bool operator==(const vec3 &) const = default;
+  };
+
+  struct weapon {
+    std::string name;
+    int32_t damage;
+
+    bool operator==(const weapon &) const = default;
+  };
+
+  vec3 pos;
+  int32_t mana;
+  int64_t hp;
+  std::string name;
+  std::vector<std::uint8_t> inventory;
+  color color;
+  std::vector<weapon> weapons;
+  std::optional<weapon> equipped;
+  std::vector<vec3> path;
+  bool boss;
+
+  bool operator==(const monster_with_optional &) const = default;
+};
+
+TEST(test_pb_protocol, monster_with_optional)
+{
+    constexpr auto data =
+        "0a0f0d0100000015020000001d0300000015c800000019e80300000000000030015001"_decode_hex;
+
+    monster_with_optional m;
+    zpp::bits::in{data, zpp::bits::no_size{}, zpp::bits::pb_protocol_option{} }(m).or_throw();
+
+    EXPECT_EQ(m.pos.x, 1);
+    EXPECT_EQ(m.pos.y, 2);
+    EXPECT_EQ(m.pos.z, 3);
+    EXPECT_EQ(m.mana, 200);
+    EXPECT_EQ(m.hp,   1000);
+    EXPECT_EQ(m.name.size(), 0u);
+    EXPECT_EQ(m.inventory.size(), 0u);
+    EXPECT_EQ(m.color, monster_with_optional::color::blue);
+    EXPECT_EQ(m.weapons.size(), 0u);
+    EXPECT_EQ(m.equipped.has_value(), false);
+    EXPECT_EQ(m.path.size(), 0u);
+    EXPECT_EQ(m.boss, true);
+
+    std::array<std::byte, data.size()> new_data;
+    zpp::bits::out{new_data, zpp::bits::no_size{}, zpp::bits::pb_protocol_option{}}(m).or_throw();
+
+    EXPECT_EQ(data, new_data);
+}
+
+
+struct example_with_serailized_as 
+{
+    struct mapped_data {
+        uint64_t value;
+        constexpr static auto& serialize_as(auto& self) {
+            return self.value;
+        }
+        bool operator==(const mapped_data &) const = default;
+    } data;
+    bool operator==(const example_with_serailized_as &) const = default;
+};
+
+TEST(test_pb_protocol, serailized_as) 
+{    
+    constexpr auto data = "090200000000000000"_decode_hex;
+    example_with_serailized_as x;
+    zpp::bits::in{data, zpp::bits::no_size{}, zpp::bits::pb_protocol_option{} }(x).or_throw();
+    EXPECT_EQ(x.data.value, 2ull);
+
+    std::array<std::byte, data.size()> new_data;
+    zpp::bits::out{new_data, zpp::bits::no_size{}, zpp::bits::pb_protocol_option{}}(x).or_throw();
+
+    EXPECT_EQ(data, new_data);
+}
+
+struct example_with_explicit_serailized_as 
+{
+    struct mapped_data {
+        uint64_t value;
+        
+        bool operator==(const mapped_data &) const = default;
+    } data;
+    bool operator==(const example_with_explicit_serailized_as &) const = default;
+};
+
+constexpr uint64_t& serialize_as(example_with_explicit_serailized_as::mapped_data& self) 
+{
+    return self.value;
+}
+constexpr uint64_t serialize_as(const example_with_explicit_serailized_as::mapped_data& self) 
+{
+    return self.value;
+}
+
+TEST(test_pb_protocol, explicit_serailized_as) 
+{    
+    constexpr auto data = "090200000000000000"_decode_hex;
+    example_with_explicit_serailized_as x;
+    zpp::bits::in{data, zpp::bits::no_size{}, zpp::bits::pb_protocol_option{} }(x).or_throw();
+    EXPECT_EQ(x.data.value, 2ull);
+
+    std::array<std::byte, data.size()> new_data;
+    zpp::bits::out{new_data, zpp::bits::no_size{}, zpp::bits::pb_protocol_option{}}(x).or_throw();
+
+    EXPECT_EQ(data, new_data);
+}
+
 } // namespace test_pb_protocol

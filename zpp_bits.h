@@ -94,6 +94,8 @@ struct members
     constexpr static std::size_t value = Count;
 };
 
+struct default_protocol {};
+
 template <auto Protocol, std::size_t Members = std::numeric_limits<std::size_t>::max()>
 struct protocol
 {
@@ -165,12 +167,6 @@ constexpr auto failure(errc code)
 
 struct access
 {
-    struct any
-    {
-        template <typename Type>
-        operator Type();
-    };
-
     template <typename Item>
     constexpr static auto make(auto &&... arguments)
     {
@@ -709,6 +705,28 @@ constexpr auto unique(auto && ... values)
     };
     return (... && unique_among_rest(values, values...));
 }
+
+template <typename Option, typename... Options>
+constexpr auto get_protocol_impl() {
+    if constexpr ( requires { typename std::remove_cvref_t<Option>::protocol_type; }) {
+        return std::remove_cvref_t<Option>::protocol_type::value;
+    }
+    else if constexpr (sizeof...(Options) != 0) {
+        return get_protocol_impl<Options...>();
+    }
+    else {
+        return default_protocol{};
+    }
+}
+
+template <typename... Options>
+constexpr auto get_protocol () { 
+    if constexpr (sizeof...(Options) != 0) {
+        return get_protocol_impl<Options...>();
+    } else {
+        return default_protocol{};
+    } 
+}
 } // namespace traits
 
 namespace concepts
@@ -1084,7 +1102,18 @@ struct size_native : option<size_native>
 {
     using default_size_type = std::size_t;
 };
+
+template <typename Protocol>
+struct protocol_option : option<protocol_option<Protocol>> {
+    using protocol_type = Protocol;
+};
 } // namespace options
+
+struct any
+{
+    template <typename Type>
+    operator Type() requires (! concepts::optional<Type>);
+};
 
 template <typename Type>
 constexpr auto access::number_of_members()
@@ -1790,6 +1819,8 @@ public:
 
     constexpr static auto enlarger = traits::enlarger<Options...>();
 
+    constexpr static auto the_protocol = traits::get_protocol<Options...>();
+
     constexpr static auto no_enlarge_overflow =
         (... ||
          std::same_as<std::remove_cvref_t<Options>, options::no_enlarge_overflow>);
@@ -1942,6 +1973,8 @@ protected:
             return type::serialize(*this, item);
         } else if constexpr (requires { serialize(*this, item); }) {
             return serialize(*this, item);
+        } else if constexpr (std::is_aggregate_v<type> && !std::is_same_v<default_protocol, std::remove_cvref_t<decltype(the_protocol)>>) {
+            return serialize_one_with_protocol(the_protocol, std::forward<decltype(item)>(item));
         } else if constexpr (std::is_fundamental_v<type> || std::is_enum_v<type>) {
             if constexpr (resizable) {
                 if (auto result = enlarge_for(sizeof(item));
@@ -2280,6 +2313,67 @@ protected:
         }
     }
 
+    template <typename Protocol, typename SizeType = default_size_type>
+    constexpr errc ZPP_BITS_INLINE serialize_one_with_protocol(Protocol protocol, auto && item)
+    {
+        if constexpr (!std::is_void_v<SizeType>) {
+            auto size_position = m_position;
+            if (auto result = serialize_one(SizeType{});
+                failure(result)) [[unlikely]] {
+                return result;
+            }
+
+            if (auto result = protocol(*this, item); failure(result))
+                [[unlikely]] {
+                return result;
+            }
+
+            auto current_position = m_position;
+            std::size_t message_size =
+                    current_position - size_position - sizeof(SizeType);
+            if constexpr (concepts::varint<SizeType>) {
+                constexpr auto preserialized_varint_size = 1;
+                message_size = current_position - size_position -
+                               preserialized_varint_size;
+                auto move_ahead_count =
+                    varint_size(message_size) - preserialized_varint_size;
+                if (move_ahead_count) {
+                    if constexpr (resizable) {
+                        if (auto result = enlarge_for(move_ahead_count);
+                            failure(result)) [[unlikely]] {
+                            return result;
+                        }
+                    } else if (move_ahead_count >
+                               m_data.size() - current_position)
+                        [[unlikely]] {
+                        return std::errc::result_out_of_range;
+                    }
+                    auto data = m_data.data();
+                    auto message_start =
+                        data + size_position + preserialized_varint_size;
+                    auto message_end = data + current_position;
+                    if (std::is_constant_evaluated()) {
+                        for (auto p = message_end - 1; p >= message_start;
+                             --p) {
+                            *(p + move_ahead_count) = *p;
+                        }
+                    } else {
+                        std::memmove(message_start + move_ahead_count,
+                                     message_start,
+                                     message_size);
+                    }
+                    m_position += move_ahead_count;
+                }
+            }
+            return basic_out<std::span<byte_type, sizeof(SizeType)>>{
+                std::span<byte_type, sizeof(SizeType)>{
+                    m_data.data() + size_position, sizeof(SizeType)}}(
+                SizeType(message_size));
+        } else {
+            return protocol(*this, item);
+        }
+    }
+
     constexpr ~basic_out() = default;
 
     view_type m_data{};
@@ -2383,6 +2477,8 @@ public:
     constexpr static auto allocation_limit =
         traits::alloc_limit<Options...>();
 
+    constexpr static auto the_protocol = traits::get_protocol<Options...>();
+
     constexpr explicit in(ByteView && view, Options && ... options) : m_data(view)
     {
         static_assert(!resizable);
@@ -2472,6 +2568,8 @@ private:
             return type::serialize(*this, item);
         } else if constexpr (requires { serialize(*this, item); }) {
             return serialize(*this, item);
+        } else if constexpr (std::is_aggregate_v<type> && !std::is_same_v<default_protocol, std::remove_cvref_t<decltype(the_protocol)>>) {
+            return serialize_one_with_protocol( the_protocol, std::forward<decltype(item)>(item));
         } else if constexpr (std::is_fundamental_v<type> || std::is_enum_v<type>) {
             auto size = m_data.size();
             if (sizeof(item) > size - m_position) [[unlikely]] {
@@ -2985,6 +3083,21 @@ private:
                 constexpr auto protocol = decltype(serialize(item))::value;
                 return protocol(*this, item);
             }
+        }
+    }
+
+    template <typename SizeType = default_size_type>
+    constexpr errc ZPP_BITS_INLINE serialize_one_with_protocol(auto protocol, auto && item)
+    {
+        if constexpr (!std::is_void_v<SizeType>) {
+            SizeType size{};
+            if (auto result = serialize_one(size); failure(result))
+                [[unlikely]] {
+                return result;
+            }
+            return protocol(*this, item, size);
+        } else {
+            return protocol(*this, item);
         }
     }
 
@@ -4475,12 +4588,17 @@ struct pb
                 requires { type{}.insert(typename type::value_type{}); });
             static_assert(check_type<typename type::value_type>());
             return true;
+        } else if constexpr (concepts::optional<type>) {
+            static_assert(check_type<typename type::value_type>());
+            return true;
         } else if constexpr (concepts::by_protocol<type>) {
             static_assert(
                 std::same_as<pb_default,
                              typename decltype(access::get_protocol<
                                                type>())::pb_default>);
             static_assert(unique_field_numbers<type>());
+            return true;
+        } else if constexpr (std::is_aggregate_v<type>) {
             return true;
         } else {
             static_assert(!sizeof(Type));
@@ -4562,7 +4680,32 @@ struct pb
         using type = std::remove_cvref_t<decltype(item)>;
         static_assert(check_type<type>());
 
+        auto serialize_members = [](auto & archive, auto& item) ZPP_BITS_CONSTEXPR_INLINE_LAMBDA {
+            if constexpr (concepts::self_referencing<type>) {
+                return visit_members(
+                item,
+                [&](auto &&... items) constexpr {
+                    static_assert((... && check_type<decltype(items)>()));
+                    return serialize_many(
+                        std::make_index_sequence<sizeof...(items)>{},
+                        archive,
+                        items...);
+                });
+            } else {
+                return visit_members(
+                    item,
+                    [&](auto &&... items) ZPP_BITS_CONSTEXPR_INLINE_LAMBDA {
+                        static_assert((... && check_type<decltype(items)>()));
+                        return serialize_many(
+                            std::make_index_sequence<sizeof...(items)>{},
+                            archive,
+                            items...);
+                    });
+            }
+        };
+
         using archive_type = typename std::remove_cvref_t<decltype(archive)>;
+        using protocol_type = protocol<archive_type::the_protocol>;
         if constexpr (!concepts::varint<
                           typename archive_type::default_size_type> ||
                       ((std::endian::little != std::endian::native) &&
@@ -4576,53 +4719,14 @@ struct pb
                     std::conditional_t<archive_type::no_enlarge_overflow,
                                        no_enlarge_overflow,
                                        enlarge_overflow>{},
-                    alloc_limit<archive_type::allocation_limit>{}};
+                    alloc_limit<archive_type::allocation_limit>{},
+                    protocol_option<protocol_type>{}};
             out.position() = archive.position();
-            if constexpr (concepts::self_referencing<type>) {
-                auto result = visit_members(
-                    item,
-                    [&](auto &&... items) constexpr {
-                        static_assert((... && check_type<decltype(items)>()));
-                        return serialize_many(
-                            std::make_index_sequence<sizeof...(items)>{},
-                            out,
-                            items...);
-                    });
-                archive.position() = out.position();
-                return result;
-            } else {
-                auto result = visit_members(
-                    item,
-                    [&](auto &&... items) ZPP_BITS_CONSTEXPR_INLINE_LAMBDA {
-                        static_assert((... && check_type<decltype(items)>()));
-                        return serialize_many(
-                            std::make_index_sequence<sizeof...(items)>{},
-                            out,
-                            items...);
-                    });
-                archive.position() = out.position();
-                return result;
-            }
-        } else if constexpr (concepts::self_referencing<type>) {
-            return visit_members(
-                item,
-                [&](auto &&... items) constexpr {
-                    static_assert((... && check_type<decltype(items)>()));
-                    return serialize_many(
-                        std::make_index_sequence<sizeof...(items)>{},
-                        archive,
-                        items...);
-                });
-        } else {
-            return visit_members(
-                item,
-                [&](auto &&... items) ZPP_BITS_CONSTEXPR_INLINE_LAMBDA {
-                    static_assert((... && check_type<decltype(items)>()));
-                    return serialize_many(
-                        std::make_index_sequence<sizeof...(items)>{},
-                        archive,
-                        items...);
-                });
+            auto result = serialize_members(out, item);
+            archive.position() = out.position();
+            return result;
+        } else  {
+            return serialize_members(archive, item);
         }
     }
 
@@ -4668,8 +4772,33 @@ struct pb
                              !std::same_as<type, std::byte>) {
             constexpr auto tag = make_tag<tag_type, Index>();
             if (auto result = archive(
-                    tag, varint{std::underlying_type_t<type>{item}});
+                    tag, varint{std::underlying_type_t<type>{static_cast<std::underlying_type_t<type>>(item)}});
                 failure(result)) [[unlikely]] {
+                return result;
+            }
+            return {};
+        } else if constexpr (concepts::optional<type>) {
+            constexpr auto tag = make_tag<typename type::value_type, Index>();
+            if (item.has_value()) {
+                if (auto result = archive(tag, item.value());
+                    failure(result)) [[unlikely]] {
+                    return result;
+                }
+            }
+            return {};
+        } else if constexpr (requires { type::serialize_as(item); }) {
+            using as_tag_type = std::remove_cvref_t<decltype( type::serialize_as(item) )>;
+            constexpr auto tag = make_tag<as_tag_type, Index>();
+            if (auto result = archive(tag, type::serialize_as(item)); failure(result))
+                [[unlikely]] {
+                return result;
+            }
+            return {};
+        } else if constexpr (requires { serialize_as(item); }) {
+            using as_tag_type = std::remove_cvref_t<decltype( serialize_as(item) )>;
+            constexpr auto tag = make_tag<as_tag_type, Index>();
+            if (auto result = archive(tag, serialize_as(item)); failure(result))
+                [[unlikely]] {
                 return result;
             }
             return {};
@@ -4800,11 +4929,14 @@ struct pb
                  kind::in)
     {
         auto data = archive.remaining_data();
+        using archive_type = std::remove_cvref_t<decltype(archive)>;
+        using protocol_type = protocol<archive_type::the_protocol>;
         in in{std::span{data.data(), std::min(size, data.size())},
               size_varint{},
               endian::little{},
               alloc_limit<std::remove_cvref_t<
-                  decltype(archive)>::allocation_limit>{}};
+                  decltype(archive)>::allocation_limit>{},
+              protocol_option<protocol_type>{}};
         auto result = deserialize_fields(in, item);
         archive.position() += in.position();
         return result;
@@ -4827,6 +4959,8 @@ struct pb
                                       !std::same_as<type, std::byte> &&
                                       requires { member.clear(); }) {
                             member.clear();
+                        } else if constexpr (concepts::optional<type>) {
+                            member.reset();
                         }
                     }(members),
                     ...);
@@ -4914,6 +5048,12 @@ struct pb
                 archive,
                 field_type,
                 static_cast<typename type::pb_field_type &>(item));
+        } else if constexpr (concepts::optional<type>) {
+            return archive(item.emplace());
+        } else if constexpr (requires { type::serialize_as(item); }) {
+            return archive(type::serialize_as(item));
+        } else if constexpr (requires { serialize_as(item); }) {
+            return archive(serialize_as(item));
         } else if constexpr (!concepts::container<type>) {
             return archive(item);
         } else if constexpr (concepts::associative_container<type> &&
@@ -5047,6 +5187,7 @@ struct pb
 };
 
 using pb_protocol = protocol<pb{}>;
+using pb_protocol_option = protocol_option<pb_protocol>;
 
 template <std::size_t Members = std::numeric_limits<std::size_t>::max()>
 using pb_members = protocol<pb{}, Members>;
