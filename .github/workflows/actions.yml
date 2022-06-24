@@ -2,7 +2,7 @@ name: actions
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, develop]
   pull_request:
     branches: [main, master]
   schedule:
@@ -39,7 +39,7 @@ jobs:
             make: make
             mode: release
             os: ubuntu
-            vm_image: ubuntu-20.04
+            vm_image: ubuntu-20.04gi
             test_autodetect_members: 1
             with_zpp_throwing: 1
           - name: Clang 12 MacOS
