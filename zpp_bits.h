@@ -94,6 +94,7 @@ struct members
     constexpr static std::size_t value = Count;
 };
 
+struct default_protocol {};
 template <auto Protocol, std::size_t Members = std::numeric_limits<std::size_t>::max()>
 struct protocol
 {
@@ -162,15 +163,8 @@ constexpr auto failure(errc code)
     return std::errc{} != code;
 }
 
-
 struct access
 {
-    struct any
-    {
-        template <typename Type>
-        operator Type();
-    };
-
     template <typename Item>
     constexpr static auto make(auto &&... arguments)
     {
@@ -709,6 +703,29 @@ constexpr auto unique(auto && ... values)
     };
     return (... && unique_among_rest(values, values...));
 }
+
+template <typename Option, typename... Options>
+constexpr auto get_protocol_impl() {
+    if constexpr ( requires { typename std::remove_cvref_t<Option>::protocol_type; }) {
+        return std::remove_cvref_t<Option>::protocol_type::value;
+    }
+    else if constexpr (sizeof...(Options) != 0) {
+        return get_protocol_impl<Options...>();
+    }
+    else {
+        return default_protocol{};
+    }
+}
+
+template <typename... Options>
+constexpr auto get_protocol () { 
+    if constexpr (sizeof...(Options) != 0) {
+        return get_protocol_impl<Options...>();
+    } else {
+        return default_protocol{};
+    } 
+}
+
 } // namespace traits
 
 namespace concepts
@@ -1084,7 +1101,21 @@ struct size_native : option<size_native>
 {
     using default_size_type = std::size_t;
 };
+
+template <typename Protocol>
+struct protocol_option : option<protocol_option<Protocol>> {
+    using protocol_type = Protocol;
+};
 } // namespace options
+
+
+namespace detail {
+  struct any
+  {
+      template <typename Type>
+      operator Type() requires (!concepts::optional<Type>);
+  };
+}
 
 template <typename Type>
 constexpr auto access::number_of_members()
@@ -1093,6 +1124,8 @@ constexpr auto access::number_of_members()
     if constexpr (std::is_array_v<type>) {
         return std::extent_v<type>;
     } else if constexpr (!std::is_class_v<type>) {
+        return 0;
+    } else if constexpr (concepts::optional<type>) {
         return 0;
     } else if constexpr (concepts::container<type> && requires {
                              std::integral_constant<
@@ -1146,6 +1179,7 @@ constexpr auto access::number_of_members()
         return decltype(serialize(std::declval<type>()))::members;
 #if ZPP_BITS_AUTODETECT_MEMBERS_MODE == 0
     } else if constexpr (std::is_aggregate_v<type>) {
+        using any = detail::any;
         // clang-format off
         if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{},  /*.................................................................................................................*/ any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 50; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 49; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 48; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 47; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 46; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 45; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 44; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 43; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 42; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 41; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 40; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 39; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 38; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 37; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 36; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 35; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 34; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 33; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 32; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 31; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 30; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 29; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 28; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 27; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 26; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 25; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 24; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 23; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 22; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 21; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 20; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 19; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 18; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 17; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 16; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 15; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 14; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 13; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 12; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 11; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 10; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 9; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 8; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 7; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}, any{}}; }) { return 6; } else if constexpr (requires { type{any{}, any{}, any{}, any{}, any{}}; }) { return 5; } else if constexpr (requires { type{any{}, any{}, any{}, any{}}; }) { return 4; } else if constexpr (requires { type{any{}, any{}, any{}}; }) { return 3; } else if constexpr (requires { type{any{}, any{}}; }) { return 2; } else if constexpr (requires { type{any{}}; }) { return 1;
             // Returns the number of members
@@ -1790,6 +1824,8 @@ public:
 
     constexpr static auto enlarger = traits::enlarger<Options...>();
 
+    constexpr static auto the_protocol = traits::get_protocol<Options...>();
+
     constexpr static auto no_enlarge_overflow =
         (... ||
          std::same_as<std::remove_cvref_t<Options>, options::no_enlarge_overflow>);
@@ -1942,6 +1978,8 @@ protected:
             return type::serialize(*this, item);
         } else if constexpr (requires { serialize(*this, item); }) {
             return serialize(*this, item);
+        } else if constexpr (std::is_aggregate_v<type> && !std::is_same_v<default_protocol, std::remove_cvref_t<decltype(the_protocol)>>) {
+            return serialize_one_with_protocol(the_protocol, std::forward<decltype(item)>(item));
         } else if constexpr (std::is_fundamental_v<type> || std::is_enum_v<type>) {
             if constexpr (resizable) {
                 if (auto result = enlarge_for(sizeof(item));
@@ -2207,6 +2245,16 @@ protected:
     constexpr errc ZPP_BITS_INLINE serialize_one(concepts::by_protocol auto && item)
     {
         using type = std::remove_cvref_t<decltype(item)>;
+        if constexpr (requires {typename type::serialize;}) {
+            return serialize_one_with_protocol(type::serialize::value, std::forward<decltype(item)>(item));
+        } else {
+            return serialize_one_with_protocol(decltype(serialize(item))::value, std::forward<decltype(item)>(item));
+        }
+    }
+
+    template <typename Protocol, typename SizeType = default_size_type>
+    constexpr errc ZPP_BITS_INLINE serialize_one_with_protocol(Protocol protocol, auto && item)
+    {
         if constexpr (!std::is_void_v<SizeType>) {
             auto size_position = m_position;
             if (auto result = serialize_one(SizeType{});
@@ -2214,20 +2262,11 @@ protected:
                 return result;
             }
 
-            if constexpr (requires { typename type::serialize; }) {
-                constexpr auto protocol = type::serialize::value;
-                if (auto result = protocol(*this, item); failure(result))
-                    [[unlikely]] {
-                    return result;
-                }
-            } else {
-                constexpr auto protocol = decltype(serialize(item))::value;
-                if (auto result = protocol(*this, item); failure(result))
-                    [[unlikely]] {
-                    return result;
-                }
+            if (auto result = protocol(*this, item); failure(result))
+                [[unlikely]] {
+                return result;
             }
-
+            
             auto current_position = m_position;
             std::size_t message_size =
                     current_position - size_position - sizeof(SizeType);
@@ -2270,13 +2309,7 @@ protected:
                     m_data.data() + size_position, sizeof(SizeType)}}(
                 SizeType(message_size));
         } else {
-            if constexpr (requires {typename type::serialize;}) {
-                constexpr auto protocol = type::serialize::value;
-                return protocol(*this, item);
-            } else {
-                constexpr auto protocol = decltype(serialize(item))::value;
-                return protocol(*this, item);
-            }
+            return protocol(*this, item);
         }
     }
 
@@ -2383,6 +2416,8 @@ public:
     constexpr static auto allocation_limit =
         traits::alloc_limit<Options...>();
 
+    constexpr static auto the_protocol = traits::get_protocol<Options...>();
+
     constexpr explicit in(ByteView && view, Options && ... options) : m_data(view)
     {
         static_assert(!resizable);
@@ -2472,6 +2507,8 @@ private:
             return type::serialize(*this, item);
         } else if constexpr (requires { serialize(*this, item); }) {
             return serialize(*this, item);
+        } else if constexpr (std::is_aggregate_v<type> && !std::is_same_v<default_protocol, std::remove_cvref_t<decltype(the_protocol)>>) {
+            return serialize_one_with_protocol( the_protocol, std::forward<decltype(item)>(item));
         } else if constexpr (std::is_fundamental_v<type> || std::is_enum_v<type>) {
             auto size = m_data.size();
             if (sizeof(item) > size - m_position) [[unlikely]] {
@@ -2963,28 +3000,26 @@ private:
     constexpr errc ZPP_BITS_INLINE serialize_one(concepts::by_protocol auto && item)
     {
         using type = std::remove_cvref_t<decltype(item)>;
+        if constexpr (requires {typename type::serialize;}) {
+            return serialize_one_with_protocol( type::serialize::value, std::forward<decltype(item)>(item));
+        } else {
+            return serialize_one_with_protocol( decltype(serialize(item))::value, std::forward<decltype(item)>(item));
+        }  
+    }
+
+    template <typename SizeType = default_size_type>
+    constexpr errc ZPP_BITS_INLINE serialize_one_with_protocol(auto protocol, auto && item)
+    {
+        using type = std::remove_cvref_t<decltype(item)>;
         if constexpr (!std::is_void_v<SizeType>) {
             SizeType size{};
             if (auto result = serialize_one(size); failure(result))
                 [[unlikely]] {
                 return result;
             }
-
-            if constexpr (requires {typename type::serialize;}) {
-                constexpr auto protocol = type::serialize::value;
-                return protocol(*this, item, size);
-            } else {
-                constexpr auto protocol = decltype(serialize(item))::value;
-                return protocol(*this, item, size);
-            }
+            return protocol(*this, item, size);
         } else {
-            if constexpr (requires {typename type::serialize;}) {
-                constexpr auto protocol = type::serialize::value;
-                return protocol(*this, item);
-            } else {
-                constexpr auto protocol = decltype(serialize(item))::value;
-                return protocol(*this, item);
-            }
+            return protocol(*this, item);
         }
     }
 
@@ -4311,11 +4346,36 @@ constexpr decltype(auto) pb_value(pb_field_struct<Type, FieldNumber> && pb)
         typename pb_field_struct<Type, FieldNumber>::pb_field_type &&>(pb);
 }
 
+// template <typename Type, auto FieldNumber>
+// using pb_field = std::conditional_t<std::is_class_v<Type>,
+//                        pb_field_struct<Type, FieldNumber>,
+//                        pb_field_fundamental<Type, FieldNumber>> ;
 template <typename Type, auto FieldNumber>
-using pb_field =
+struct pb_field : 
     std::conditional_t<std::is_class_v<Type>,
                        pb_field_struct<Type, FieldNumber>,
-                       pb_field_fundamental<Type, FieldNumber>>;
+                       pb_field_fundamental<Type, FieldNumber>> 
+{
+
+    using base_type = std::conditional_t<std::is_class_v<Type>,
+                       pb_field_struct<Type, FieldNumber>,
+                       pb_field_fundamental<Type, FieldNumber>> ;
+    using base_type::base_type;
+};
+
+
+enum class wire_type : unsigned int
+{
+    varint = 0,
+    fixed_64 = 1,
+    length_delimited = 2,
+    fixed_32 = 5,
+};
+template <typename Type>
+struct pb_wire_type 
+{
+    constexpr static auto value = wire_type::length_delimited;;
+};
 
 template <typename... Options>
 struct pb
@@ -4475,6 +4535,9 @@ struct pb
                 requires { type{}.insert(typename type::value_type{}); });
             static_assert(check_type<typename type::value_type>());
             return true;
+        } else if constexpr (concepts::optional<type>) {
+            static_assert(check_type<typename type::value_type>());
+            return true;
         } else if constexpr (concepts::by_protocol<type>) {
             static_assert(
                 std::same_as<pb_default,
@@ -4482,18 +4545,12 @@ struct pb
                                                type>())::pb_default>);
             static_assert(unique_field_numbers<type>());
             return true;
+        } else if constexpr (std::is_aggregate_v<type>) {
+            return true;
         } else {
             static_assert(!sizeof(Type));
         }
     }
-
-    enum class wire_type : unsigned int
-    {
-        varint = 0,
-        fixed_64 = 1,
-        length_delimited = 2,
-        fixed_32 = 5,
-    };
 
     constexpr static auto make_tag_explicit(wire_type type, auto field_number)
     {
@@ -4532,7 +4589,7 @@ struct pb
                 static_assert(!sizeof(type));
             }
         } else {
-            return wire_type::length_delimited;
+            return pb_wire_type<Type>::value;
         }
     }
 
@@ -4563,6 +4620,7 @@ struct pb
         static_assert(check_type<type>());
 
         using archive_type = typename std::remove_cvref_t<decltype(archive)>;
+        using protocol_type = protocol<pb<Options...>{}>;
         if constexpr (!concepts::varint<
                           typename archive_type::default_size_type> ||
                       ((std::endian::little != std::endian::native) &&
@@ -4576,34 +4634,23 @@ struct pb
                     std::conditional_t<archive_type::no_enlarge_overflow,
                                        no_enlarge_overflow,
                                        enlarge_overflow>{},
-                    alloc_limit<archive_type::allocation_limit>{}};
+                    alloc_limit<archive_type::allocation_limit>{},
+                    protocol_option<protocol_type>{}};
             out.position() = archive.position();
-            if constexpr (concepts::self_referencing<type>) {
-                auto result = visit_members(
-                    item,
-                    [&](auto &&... items) constexpr {
-                        static_assert((... && check_type<decltype(items)>()));
-                        return serialize_many(
-                            std::make_index_sequence<sizeof...(items)>{},
-                            out,
-                            items...);
-                    });
-                archive.position() = out.position();
-                return result;
-            } else {
-                auto result = visit_members(
-                    item,
-                    [&](auto &&... items) ZPP_BITS_CONSTEXPR_INLINE_LAMBDA {
-                        static_assert((... && check_type<decltype(items)>()));
-                        return serialize_many(
-                            std::make_index_sequence<sizeof...(items)>{},
-                            out,
-                            items...);
-                    });
-                archive.position() = out.position();
-                return result;
-            }
-        } else if constexpr (concepts::self_referencing<type>) {
+            auto result = serialize_members(out, item);
+            archive.position() = out.position();
+            return result;
+        } else {
+            return serialize_members(archive, item);
+        }
+    }
+
+    constexpr auto ZPP_BITS_INLINE
+    serialize_members(auto & archive, auto & item) const requires(
+        std::remove_cvref_t<decltype(archive)>::kind() == kind::out)
+    {
+        using type = std::remove_cvref_t<decltype(item)>;
+        if constexpr (concepts::self_referencing<type>) {
             return visit_members(
                 item,
                 [&](auto &&... items) constexpr {
@@ -4668,8 +4715,33 @@ struct pb
                              !std::same_as<type, std::byte>) {
             constexpr auto tag = make_tag<tag_type, Index>();
             if (auto result = archive(
-                    tag, varint{std::underlying_type_t<type>{item}});
+                    tag, varint{std::underlying_type_t<type>{static_cast<std::underlying_type_t<type>>(item)}});
                 failure(result)) [[unlikely]] {
+                return result;
+            }
+            return {};
+        } else if constexpr (concepts::optional<type>) {
+            constexpr auto tag = make_tag<typename type::value_type, Index>();
+            if (item.has_value()) {
+                if (auto result = archive(tag, item.value());
+                    failure(result)) [[unlikely]] {
+                    return result;
+                }
+            }
+            return {};
+        } else if constexpr (requires { type::serialize_as(item); }) {
+            using as_tag_type = std::remove_cvref_t<decltype( type::serialize_as(item) )>;
+            constexpr auto tag = make_tag<as_tag_type, Index>();
+            if (auto result = archive(tag, type::serialize_as(item)); failure(result))
+                [[unlikely]] {
+                return result;
+            }
+            return {};
+        } else if constexpr (requires { serialize_as(item); }) {
+            using as_tag_type = std::remove_cvref_t<decltype( serialize_as(item) )>;
+            constexpr auto tag = make_tag<as_tag_type, Index>();
+            if (auto result = archive(tag, serialize_as(item)); failure(result))
+                [[unlikely]] {
                 return result;
             }
             return {};
@@ -4800,11 +4872,13 @@ struct pb
                  kind::in)
     {
         auto data = archive.remaining_data();
+        using protocol_type = protocol<pb<Options...>{}>;
         in in{std::span{data.data(), std::min(size, data.size())},
               size_varint{},
               endian::little{},
               alloc_limit<std::remove_cvref_t<
-                  decltype(archive)>::allocation_limit>{}};
+                  decltype(archive)>::allocation_limit>{},
+              protocol_option<protocol_type>{}};
         auto result = deserialize_fields(in, item);
         archive.position() += in.position();
         return result;
@@ -4827,6 +4901,8 @@ struct pb
                                       !std::same_as<type, std::byte> &&
                                       requires { member.clear(); }) {
                             member.clear();
+                        } else if constexpr (concepts::optional<type>) {
+                            member.reset();
                         }
                     }(members),
                     ...);
@@ -4914,6 +4990,12 @@ struct pb
                 archive,
                 field_type,
                 static_cast<typename type::pb_field_type &>(item));
+        } else if constexpr (concepts::optional<type>) {
+            return archive(item.emplace());
+        } else if constexpr (requires { type::serialize_as(item); }) {
+            return archive(type::serialize_as(item));
+        } else if constexpr (requires { serialize_as(item); }) {
+            return archive(serialize_as(item));
         } else if constexpr (!concepts::container<type>) {
             return archive(item);
         } else if constexpr (concepts::associative_container<type> &&
@@ -5047,6 +5129,7 @@ struct pb
 };
 
 using pb_protocol = protocol<pb{}>;
+using pb_protocol_option = protocol_option<pb_protocol>;
 
 template <std::size_t Members = std::numeric_limits<std::size_t>::max()>
 using pb_members = protocol<pb{}, Members>;
